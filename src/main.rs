@@ -11,6 +11,12 @@ fn main() {
         io::stdin().read_line(&mut input).unwrap();
 
         let command = input.trim();
+
+        // Exit builtin: leave the REPL cleanly
+        if command == "exit" {
+            break;
+        }
+
         println!("{}: command not found", command);
     }
 }
