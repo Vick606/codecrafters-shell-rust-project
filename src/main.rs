@@ -3,35 +3,24 @@ use std::fs;
 use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
+use std::process::Command;
 
 const BUILTINS: &[&str] = &["echo", "exit", "type"];
 
-/// Search PATH for an executable named `command`.
-/// Returns the full path on success, `None` if nothing usable was found.
 fn find_in_path(command: &str) -> Option<PathBuf> {
-    // var_os, not var: PATH is a filesystem value, not necessarily UTF-8.
     let path_var = env::var_os("PATH")?;
-
-    // split_paths uses ':' on Unix and ';' on Windows — no manual delimiter.
     for dir in env::split_paths(&path_var) {
         let candidate = dir.join(command);
-
-        // Missing file, unreadable dir, dangling symlink — skip and continue.
         let Ok(meta) = fs::metadata(&candidate) else {
             continue;
         };
-
-        // A directory with +x is not an executable.
         if !meta.is_file() {
             continue;
         }
-
-        // Any execute bit (user/group/other) set => executable.
         if meta.permissions().mode() & 0o111 != 0 {
             return Some(candidate);
         }
     }
-
     None
 }
 
@@ -60,7 +49,18 @@ fn main() {
                     }
                 }
             }
-            Some(_) => println!("{}: command not found", command),
+            Some(&cmd) => {
+                if find_in_path(cmd).is_some() {
+                    // Spawn with the bare name so argv[0] is "custom_exe", not the full path.
+                    // status() inherits stdout/stderr, so the child's output goes to our terminal.
+                    let _ = Command::new(cmd)
+                        .args(&parts[1..])
+                        .status();
+                } else {
+                    // Use the command name, not the full line, in the error message.
+                    println!("{}: command not found", cmd);
+                }
+            }
             None => {}
         }
     }
