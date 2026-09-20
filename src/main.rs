@@ -6,17 +6,23 @@ fn main() {
         print!("$ ");
         io::stdout().flush().unwrap();
 
-        // Fresh buffer each iteration — do not declare this outside the loop
+        // Fresh buffer each iteration
         let mut input = String::new();
         io::stdin().read_line(&mut input).unwrap();
 
         let command = input.trim();
 
-        // Exit builtin: leave the REPL cleanly
-        if command == "exit" {
-            break;
-        }
+        // Split into words. split_whitespace() collapses runs of spaces/tabs
+        // and skips empty segments, so "echo   hello" -> ["echo", "hello"].
+        let parts: Vec<&str> = command.split_whitespace().collect();
 
-        println!("{}: command not found", command);
+        match parts.first() {
+            Some(&"exit") => break,
+            Some(&"echo") => {
+                // Join everything after the command name with a single space.
+                println!("{}", parts[1..].join(" "));
+            }
+            _ => println!("{}: command not found", command),
+        }
     }
 }
