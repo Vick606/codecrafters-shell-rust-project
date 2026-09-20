@@ -1,0 +1,5 @@
+{
+  "name": "codecrafters-shell-rust",
+  "image": "mcr.microsoft.com/devcontainers/rust:2-1-trixie",
+  "postCreateCommand": "rustc --version"
+}
