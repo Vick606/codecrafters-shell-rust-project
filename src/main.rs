@@ -5,7 +5,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
 
-const BUILTINS: &[&str] = &["echo", "exit", "type"];
+const BUILTINS: &[&str] = &["echo", "exit", "type", "pwd"];
 
 fn find_in_path(command: &str) -> Option<PathBuf> {
     let path_var = env::var_os("PATH")?;
@@ -49,15 +49,15 @@ fn main() {
                     }
                 }
             }
+            Some(&"pwd") => {
+                if let Ok(cwd) = env::current_dir() {
+                    println!("{}", cwd.display());
+                }
+            }
             Some(&cmd) => {
                 if find_in_path(cmd).is_some() {
-                    // Spawn with the bare name so argv[0] is "custom_exe", not the full path.
-                    // status() inherits stdout/stderr, so the child's output goes to our terminal.
-                    let _ = Command::new(cmd)
-                        .args(&parts[1..])
-                        .status();
+                    let _ = Command::new(cmd).args(&parts[1..]).status();
                 } else {
-                    // Use the command name, not the full line, in the error message.
                     println!("{}: command not found", cmd);
                 }
             }
