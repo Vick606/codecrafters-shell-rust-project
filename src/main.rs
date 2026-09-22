@@ -57,10 +57,8 @@ fn main() {
             Some(&"cd") => {
                 if let Some(&target) = parts.get(1) {
                     let path = PathBuf::from(target);
-                    if path.is_absolute() {
-                        if env::set_current_dir(&path).is_err() {
-                            println!("cd: {}: No such file or directory", target);
-                        }
+                    if env::set_current_dir(&path).is_err() {
+                        println!("cd: {}: No such file or directory", target);
                     }
                 }
             }
