@@ -1,9 +1,10 @@
 use std::env;
 use std::fs;
+use std::fs::File;
 use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 const BUILTINS: &[&str] = &["echo", "exit", "type", "pwd", "cd"];
 
@@ -92,6 +93,15 @@ fn tokenize(input: &str) -> Vec<String> {
     tokens
 }
 
+fn parse_redirect<'a>(parts: &[&'a str]) -> (Vec<&'a str>, Option<PathBuf>) {
+    if let Some(pos) = parts.iter().position(|&p| p == ">" || p == "1>") {
+        if let Some(target) = parts.get(pos + 1) {
+            return (parts[..pos].to_vec(), Some(PathBuf::from(target)));
+        }
+    }
+    (parts.to_vec(), None)
+}
+
 fn main() {
     loop {
         print!("$ ");
@@ -102,12 +112,22 @@ fn main() {
 
         let owned_parts = tokenize(&input);
         let parts: Vec<&str> = owned_parts.iter().map(|s| s.as_str()).collect();
+        let (cmd_parts, redirect) = parse_redirect(&parts);
 
-        match parts.first() {
+        match cmd_parts.first() {
             Some(&"exit") => break,
-            Some(&"echo") => println!("{}", parts[1..].join(" ")),
+            Some(&"echo") => {
+                let output = cmd_parts[1..].join(" ");
+                if let Some(ref path) = redirect {
+                    if let Ok(mut f) = File::create(path) {
+                        let _ = writeln!(f, "{}", output);
+                    }
+                } else {
+                    println!("{}", output);
+                }
+            }
             Some(&"type") => {
-                if let Some(&arg) = parts.get(1) {
+                if let Some(&arg) = cmd_parts.get(1) {
                     if BUILTINS.contains(&arg) {
                         println!("{} is a shell builtin", arg);
                     } else if let Some(path) = find_in_path(arg) {
@@ -119,11 +139,17 @@ fn main() {
             }
             Some(&"pwd") => {
                 if let Ok(cwd) = env::current_dir() {
-                    println!("{}", cwd.display());
+                    if let Some(ref path) = redirect {
+                        if let Ok(mut f) = File::create(path) {
+                            let _ = writeln!(f, "{}", cwd.display());
+                        }
+                    } else {
+                        println!("{}", cwd.display());
+                    }
                 }
             }
             Some(&"cd") => {
-                if let Some(&target) = parts.get(1) {
+                if let Some(&target) = cmd_parts.get(1) {
                     let expanded: PathBuf = if target == "~" {
                         match env::var_os("HOME") {
                             Some(home) => PathBuf::from(home),
@@ -140,7 +166,14 @@ fn main() {
             }
             Some(&cmd) => {
                 if find_in_path(cmd).is_some() {
-                    let _ = Command::new(cmd).args(&parts[1..]).status();
+                    let mut command = Command::new(cmd);
+                    command.args(&cmd_parts[1..]);
+                    if let Some(ref path) = redirect {
+                        if let Ok(file) = File::create(path) {
+                            command.stdout(Stdio::from(file));
+                        }
+                    }
+                    let _ = command.status();
                 } else {
                     println!("{}: command not found", cmd);
                 }
