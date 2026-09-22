@@ -24,6 +24,35 @@ fn find_in_path(command: &str) -> Option<PathBuf> {
     None
 }
 
+/// Split a command line into arguments, honouring single quotes.
+fn tokenize(input: &str) -> Vec<String> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut in_single_quote = false;
+    let mut has_token = false;
+
+    for ch in input.chars() {
+        if ch == '\'' {
+            in_single_quote = !in_single_quote;
+            has_token = true;
+        } else if ch.is_whitespace() && !in_single_quote {
+            if has_token {
+                tokens.push(std::mem::take(&mut current));
+                has_token = false;
+            }
+        } else {
+            current.push(ch);
+            has_token = true;
+        }
+    }
+
+    if has_token {
+        tokens.push(current);
+    }
+
+    tokens
+}
+
 fn main() {
     loop {
         print!("$ ");
@@ -32,8 +61,8 @@ fn main() {
         let mut input = String::new();
         io::stdin().read_line(&mut input).unwrap();
 
-        let command = input.trim();
-        let parts: Vec<&str> = command.split_whitespace().collect();
+        let owned_parts = tokenize(&input);
+        let parts: Vec<&str> = owned_parts.iter().map(|s| s.as_str()).collect();
 
         match parts.first() {
             Some(&"exit") => break,
