@@ -129,6 +129,7 @@ fn parse_redirects<'a>(parts: &[&'a str]) -> (Vec<&'a str>, Redirects) {
             ">" | "1>" => (true, RedirectMode::Truncate),
             ">>" | "1>>" => (true, RedirectMode::Append),
             "2>" => (false, RedirectMode::Truncate),
+            "2>>" => (false, RedirectMode::Append),
             _ => {
                 i += 1;
                 continue;
