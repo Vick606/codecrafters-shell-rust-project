@@ -1,9 +1,8 @@
 use std::env;
-use std::fs;
-use std::fs::File;
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const BUILTINS: &[&str] = &["echo", "exit", "type", "pwd", "cd"];
@@ -93,9 +92,29 @@ fn tokenize(input: &str) -> Vec<String> {
     tokens
 }
 
+#[derive(Clone, Copy)]
+enum RedirectMode {
+    Truncate,
+    Append,
+}
+
 struct Redirects {
-    stdout: Option<PathBuf>,
-    stderr: Option<PathBuf>,
+    stdout: Option<(PathBuf, RedirectMode)>,
+    stderr: Option<(PathBuf, RedirectMode)>,
+}
+
+fn open_redirect(path: &Path, mode: RedirectMode) -> io::Result<File> {
+    match mode {
+        RedirectMode::Truncate => OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path),
+        RedirectMode::Append => OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(path),
+    }
 }
 
 fn parse_redirects<'a>(parts: &[&'a str]) -> (Vec<&'a str>, Redirects) {
@@ -106,25 +125,27 @@ fn parse_redirects<'a>(parts: &[&'a str]) -> (Vec<&'a str>, Redirects) {
 
     while i < parts.len() {
         let p = parts[i];
-        if p == ">" || p == "1>" {
-            if cmd_end == parts.len() {
-                cmd_end = i;
+        let (is_stdout, mode) = match p {
+            ">" | "1>" => (true, RedirectMode::Truncate),
+            ">>" | "1>>" => (true, RedirectMode::Append),
+            "2>" => (false, RedirectMode::Truncate),
+            _ => {
+                i += 1;
+                continue;
             }
-            if let Some(t) = parts.get(i + 1) {
-                stdout = Some(PathBuf::from(t));
-            }
-            i += 2;
-        } else if p == "2>" {
-            if cmd_end == parts.len() {
-                cmd_end = i;
-            }
-            if let Some(t) = parts.get(i + 1) {
-                stderr = Some(PathBuf::from(t));
-            }
-            i += 2;
-        } else {
-            i += 1;
+        };
+        if cmd_end == parts.len() {
+            cmd_end = i;
         }
+        if let Some(t) = parts.get(i + 1) {
+            let target = PathBuf::from(t);
+            if is_stdout {
+                stdout = Some((target, mode));
+            } else {
+                stderr = Some((target, mode));
+            }
+        }
+        i += 2;
     }
 
     let cmd: Vec<&str> = parts[..cmd_end].iter().copied().collect();
@@ -143,16 +164,13 @@ fn main() {
         let parts: Vec<&str> = owned_parts.iter().map(|s| s.as_str()).collect();
         let (cmd_parts, redirects) = parse_redirects(&parts);
 
-        // Redirections are set up before the command runs. For builtins, this
-        // means the redirect file must be created even if the builtin produces
-        // no output on that stream. External commands get the file via Stdio.
         let is_builtin = matches!(
             cmd_parts.first(),
             Some(&"exit") | Some(&"echo") | Some(&"type") | Some(&"pwd") | Some(&"cd")
         );
         if is_builtin {
-            if let Some(ref path) = redirects.stderr {
-                let _ = File::create(path);
+            if let Some((ref path, mode)) = redirects.stderr {
+                let _ = open_redirect(path, mode);
             }
         }
 
@@ -160,8 +178,8 @@ fn main() {
             Some(&"exit") => break,
             Some(&"echo") => {
                 let output = cmd_parts[1..].join(" ");
-                if let Some(ref path) = redirects.stdout {
-                    if let Ok(mut f) = File::create(path) {
+                if let Some((ref path, mode)) = redirects.stdout {
+                    if let Ok(mut f) = open_redirect(path, mode) {
                         let _ = writeln!(f, "{}", output);
                     }
                 } else {
@@ -181,8 +199,8 @@ fn main() {
             }
             Some(&"pwd") => {
                 if let Ok(cwd) = env::current_dir() {
-                    if let Some(ref path) = redirects.stdout {
-                        if let Ok(mut f) = File::create(path) {
+                    if let Some((ref path, mode)) = redirects.stdout {
+                        if let Ok(mut f) = open_redirect(path, mode) {
                             let _ = writeln!(f, "{}", cwd.display());
                         }
                     } else {
@@ -210,13 +228,13 @@ fn main() {
                 if find_in_path(cmd).is_some() {
                     let mut command = Command::new(cmd);
                     command.args(&cmd_parts[1..]);
-                    if let Some(ref path) = redirects.stdout {
-                        if let Ok(file) = File::create(path) {
+                    if let Some((ref path, mode)) = redirects.stdout {
+                        if let Ok(file) = open_redirect(path, mode) {
                             command.stdout(Stdio::from(file));
                         }
                     }
-                    if let Some(ref path) = redirects.stderr {
-                        if let Ok(file) = File::create(path) {
+                    if let Some((ref path, mode)) = redirects.stderr {
+                        if let Ok(file) = open_redirect(path, mode) {
                             command.stderr(Stdio::from(file));
                         }
                     }
