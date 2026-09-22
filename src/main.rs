@@ -30,13 +30,12 @@ enum QuoteState {
     Double,
 }
 
-/// Split a command line into arguments, honouring quotes and backslash escapes.
 fn tokenize(input: &str) -> Vec<String> {
     let mut tokens: Vec<String> = Vec::new();
     let mut current = String::new();
     let mut state = QuoteState::None;
     let mut has_token = false;
-    let mut chars = input.chars();
+    let mut chars = input.chars().peekable();
 
     while let Some(ch) = chars.next() {
         match state {
@@ -70,7 +69,14 @@ fn tokenize(input: &str) -> Vec<String> {
                 }
             }
             QuoteState::Double => {
-                if ch == '"' {
+                if ch == '\\' {
+                    match chars.peek() {
+                        Some(&'"') | Some(&'\\') => {
+                            current.push(chars.next().unwrap());
+                        }
+                        _ => current.push('\\'),
+                    }
+                } else if ch == '"' {
                     state = QuoteState::None;
                 } else {
                     current.push(ch);
