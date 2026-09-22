@@ -5,7 +5,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
 
-const BUILTINS: &[&str] = &["echo", "exit", "type", "pwd"];
+const BUILTINS: &[&str] = &["echo", "exit", "type", "pwd", "cd"];
 
 fn find_in_path(command: &str) -> Option<PathBuf> {
     let path_var = env::var_os("PATH")?;
@@ -52,6 +52,16 @@ fn main() {
             Some(&"pwd") => {
                 if let Ok(cwd) = env::current_dir() {
                     println!("{}", cwd.display());
+                }
+            }
+            Some(&"cd") => {
+                if let Some(&target) = parts.get(1) {
+                    let path = PathBuf::from(target);
+                    if path.is_absolute() {
+                        if env::set_current_dir(&path).is_err() {
+                            println!("cd: {}: No such file or directory", target);
+                        }
+                    }
                 }
             }
             Some(&cmd) => {
