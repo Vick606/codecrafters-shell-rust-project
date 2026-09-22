@@ -93,13 +93,42 @@ fn tokenize(input: &str) -> Vec<String> {
     tokens
 }
 
-fn parse_redirect<'a>(parts: &[&'a str]) -> (Vec<&'a str>, Option<PathBuf>) {
-    if let Some(pos) = parts.iter().position(|&p| p == ">" || p == "1>") {
-        if let Some(target) = parts.get(pos + 1) {
-            return (parts[..pos].to_vec(), Some(PathBuf::from(target)));
+struct Redirects {
+    stdout: Option<PathBuf>,
+    stderr: Option<PathBuf>,
+}
+
+fn parse_redirects<'a>(parts: &[&'a str]) -> (Vec<&'a str>, Redirects) {
+    let mut stdout = None;
+    let mut stderr = None;
+    let mut cmd_end = parts.len();
+    let mut i = 0;
+
+    while i < parts.len() {
+        let p = parts[i];
+        if p == ">" || p == "1>" {
+            if cmd_end == parts.len() {
+                cmd_end = i;
+            }
+            if let Some(t) = parts.get(i + 1) {
+                stdout = Some(PathBuf::from(t));
+            }
+            i += 2;
+        } else if p == "2>" {
+            if cmd_end == parts.len() {
+                cmd_end = i;
+            }
+            if let Some(t) = parts.get(i + 1) {
+                stderr = Some(PathBuf::from(t));
+            }
+            i += 2;
+        } else {
+            i += 1;
         }
     }
-    (parts.to_vec(), None)
+
+    let cmd: Vec<&str> = parts[..cmd_end].iter().copied().collect();
+    (cmd, Redirects { stdout, stderr })
 }
 
 fn main() {
@@ -112,13 +141,26 @@ fn main() {
 
         let owned_parts = tokenize(&input);
         let parts: Vec<&str> = owned_parts.iter().map(|s| s.as_str()).collect();
-        let (cmd_parts, redirect) = parse_redirect(&parts);
+        let (cmd_parts, redirects) = parse_redirects(&parts);
+
+        // Redirections are set up before the command runs. For builtins, this
+        // means the redirect file must be created even if the builtin produces
+        // no output on that stream. External commands get the file via Stdio.
+        let is_builtin = matches!(
+            cmd_parts.first(),
+            Some(&"exit") | Some(&"echo") | Some(&"type") | Some(&"pwd") | Some(&"cd")
+        );
+        if is_builtin {
+            if let Some(ref path) = redirects.stderr {
+                let _ = File::create(path);
+            }
+        }
 
         match cmd_parts.first() {
             Some(&"exit") => break,
             Some(&"echo") => {
                 let output = cmd_parts[1..].join(" ");
-                if let Some(ref path) = redirect {
+                if let Some(ref path) = redirects.stdout {
                     if let Ok(mut f) = File::create(path) {
                         let _ = writeln!(f, "{}", output);
                     }
@@ -139,7 +181,7 @@ fn main() {
             }
             Some(&"pwd") => {
                 if let Ok(cwd) = env::current_dir() {
-                    if let Some(ref path) = redirect {
+                    if let Some(ref path) = redirects.stdout {
                         if let Ok(mut f) = File::create(path) {
                             let _ = writeln!(f, "{}", cwd.display());
                         }
@@ -168,9 +210,14 @@ fn main() {
                 if find_in_path(cmd).is_some() {
                     let mut command = Command::new(cmd);
                     command.args(&cmd_parts[1..]);
-                    if let Some(ref path) = redirect {
+                    if let Some(ref path) = redirects.stdout {
                         if let Ok(file) = File::create(path) {
                             command.stdout(Stdio::from(file));
+                        }
+                    }
+                    if let Some(ref path) = redirects.stderr {
+                        if let Ok(file) = File::create(path) {
+                            command.stderr(Stdio::from(file));
                         }
                     }
                     let _ = command.status();
