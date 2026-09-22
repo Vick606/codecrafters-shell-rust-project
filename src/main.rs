@@ -24,25 +24,52 @@ fn find_in_path(command: &str) -> Option<PathBuf> {
     None
 }
 
-/// Split a command line into arguments, honouring single quotes.
+enum QuoteState {
+    None,
+    Single,
+    Double,
+}
+
+/// Split a command line into arguments, honouring single and double quotes.
 fn tokenize(input: &str) -> Vec<String> {
     let mut tokens: Vec<String> = Vec::new();
     let mut current = String::new();
-    let mut in_single_quote = false;
+    let mut state = QuoteState::None;
     let mut has_token = false;
 
     for ch in input.chars() {
-        if ch == '\'' {
-            in_single_quote = !in_single_quote;
-            has_token = true;
-        } else if ch.is_whitespace() && !in_single_quote {
-            if has_token {
-                tokens.push(std::mem::take(&mut current));
-                has_token = false;
+        match state {
+            QuoteState::None => {
+                if ch == '\'' {
+                    state = QuoteState::Single;
+                    has_token = true;
+                } else if ch == '"' {
+                    state = QuoteState::Double;
+                    has_token = true;
+                } else if ch.is_whitespace() {
+                    if has_token {
+                        tokens.push(std::mem::take(&mut current));
+                        has_token = false;
+                    }
+                } else {
+                    current.push(ch);
+                    has_token = true;
+                }
             }
-        } else {
-            current.push(ch);
-            has_token = true;
+            QuoteState::Single => {
+                if ch == '\'' {
+                    state = QuoteState::None;
+                } else {
+                    current.push(ch);
+                }
+            }
+            QuoteState::Double => {
+                if ch == '"' {
+                    state = QuoteState::None;
+                } else {
+                    current.push(ch);
+                }
+            }
         }
     }
 
